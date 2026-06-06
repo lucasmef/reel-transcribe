@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reel-transcribe"
+version = "0.1.0"
+description = "Baixa Reels publicos e os transcreve ou traduz integralmente para portugues com Gemini."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Lucas" }]
+dependencies = [
+    "google-genai>=1.0.0,<2",
+    "yt-dlp[default]>=2025.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10",
+]
+
+[project.scripts]
+reel-transcribe = "reel_transcribe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
