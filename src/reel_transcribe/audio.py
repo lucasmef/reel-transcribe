@@ -22,6 +22,8 @@ class FfmpegAudioExtractor:
             "-loglevel",
             "error",
             "-y",
+            "-protocol_whitelist",
+            "file,pipe",
             "-i",
             str(video_path),
             "-vn",
@@ -40,7 +42,10 @@ class FfmpegAudioExtractor:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=600,
             )
+        except subprocess.TimeoutExpired as exc:
+            raise AudioExtractionError("O ffmpeg excedeu o tempo limite de 10 minutos.") from exc
         except OSError as exc:
             raise AudioExtractionError(f"Falha ao executar o ffmpeg: {exc}") from exc
 

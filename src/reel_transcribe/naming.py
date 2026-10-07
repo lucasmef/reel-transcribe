@@ -19,15 +19,14 @@ _WINDOWS_RESERVED = {
 
 
 def default_output_directory() -> Path:
-    if os.name == "nt":
-        return (
-            Path.home()
-            / "Transmissão no Google Drive"
-            / "Meu Drive"
-            / "VIDEOS"
-            / "MODEL"
-        )
-    return Path.home() / "VIDEOS" / "MODEL"
+    configured = os.environ.get("REEL_TRANSCRIBE_OUTPUT", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / "Videos" / "reel-transcribe"
+
+
+def default_image_output_directory() -> Path:
+    return Path.home() / "Downloads"
 
 
 def sanitize_title(value: str, *, max_length: int = 100) -> str:
@@ -51,6 +50,11 @@ def base_name(first_sentence: str, *, processed_on: date | None = None) -> str:
     return f"{date_prefix}-{title}"
 
 
+def image_base_name(post_code: str, index: int) -> str:
+    title = sanitize_title(f"{post_code}-{index}")
+    return title or f"image-{index}"
+
+
 def available_pair(output_dir: Path, desired_base: str) -> tuple[Path, Path]:
     counter = 1
     while True:
@@ -59,6 +63,17 @@ def available_pair(output_dir: Path, desired_base: str) -> tuple[Path, Path]:
         transcript = output_dir / f"{desired_base}{suffix}.txt"
         if not video.exists() and not transcript.exists():
             return video, transcript
+        counter += 1
+
+
+def available_file(output_dir: Path, desired_base: str, extension: str) -> Path:
+    counter = 1
+    normalized_extension = extension if extension.startswith(".") else f".{extension}"
+    while True:
+        suffix = "" if counter == 1 else f" ({counter})"
+        candidate = output_dir / f"{desired_base}{suffix}{normalized_extension}"
+        if not candidate.exists():
+            return candidate
         counter += 1
 
 

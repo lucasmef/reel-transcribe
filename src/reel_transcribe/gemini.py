@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -9,6 +10,9 @@ from typing import Any, Callable
 from .errors import GeminiError
 
 Progress = Callable[[str], None]
+
+DEFAULT_FALLBACK_MODELS = ("gemini-3.1-flash-lite",)
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 45.0
 
 _PROMPT = """
 Faca a transcricao na integra de toda a fala deste audio.
@@ -69,6 +73,8 @@ class GeminiTranscriber:
         poll_interval: float = 2.0,
         processing_timeout: float = 600.0,
         max_attempts: int = 3,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        fallback_models: tuple[str, ...] = DEFAULT_FALLBACK_MODELS,
         sleep: Callable[[float], None] = time.sleep,
         client: Any | None = None,
     ) -> None:
@@ -83,12 +89,20 @@ class GeminiTranscriber:
                 raise GeminiError(
                     "Dependencia google-genai ausente. Reinstale reel-transcribe."
                 ) from exc
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(
+                api_key=api_key,
+                http_options={
+                    "timeout": int(request_timeout * 1000),
+                    "retry_options": {"attempts": 1},
+                },
+            )
 
         self._client = client
         self._poll_interval = poll_interval
         self._processing_timeout = processing_timeout
         self._max_attempts = max_attempts
+        self._request_timeout = request_timeout
+        self._fallback_models = fallback_models
         self._sleep = sleep
 
     def transcribe(
@@ -106,21 +120,11 @@ class GeminiTranscriber:
             )
             uploaded = self._wait_until_active(uploaded, progress)
 
-            if progress:
-                progress("Transcrevendo e traduzindo com o Gemini...")
-            response = self._retry(
-                lambda: self._client.models.generate_content(
-                    model=model,
-                    contents=[uploaded, _PROMPT],
-                    config={
-                        "response_mime_type": "application/json",
-                        "response_json_schema": _RESPONSE_SCHEMA,
-                        "temperature": 0,
-                        "max_output_tokens": 65536,
-                    },
-                )
+            return self._generate_with_fallback(
+                uploaded,
+                model,
+                progress,
             )
-            return self._parse_response(getattr(response, "text", None))
         except GeminiError:
             raise
         except Exception as exc:
@@ -132,7 +136,57 @@ class GeminiTranscriber:
                     try:
                         self._client.files.delete(name=name)
                     except Exception:
-                        pass
+                        message = (
+                            "Nao foi possivel excluir o audio remoto do Gemini. "
+                            "Verifique os arquivos enviados na sua conta."
+                        )
+                        if progress:
+                            progress(message)
+                        else:
+                            warnings.warn(message, RuntimeWarning, stacklevel=2)
+
+    def _generate_with_fallback(
+        self,
+        uploaded: Any,
+        requested_model: str,
+        progress: Progress | None,
+    ) -> Transcription:
+        candidates = tuple(
+            dict.fromkeys((requested_model, *self._fallback_models))
+        )
+        last_error: Exception | None = None
+
+        for index, model in enumerate(candidates):
+            if progress:
+                progress(f"Transcrevendo e traduzindo com {model}...")
+            try:
+                response = self._client.models.generate_content(
+                    model=model,
+                    contents=[uploaded, _PROMPT],
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_json_schema": _RESPONSE_SCHEMA,
+                        "temperature": 0,
+                        "max_output_tokens": 65536,
+                        "http_options": {
+                            "timeout": int(self._request_timeout * 1000),
+                            "retry_options": {"attempts": 1},
+                        },
+                    },
+                )
+                return self._parse_response(getattr(response, "text", None))
+            except Exception as exc:
+                last_error = exc
+                if progress and index + 1 < len(candidates):
+                    progress(
+                        f"Modelo {model} falhou; tentando {candidates[index + 1]}..."
+                    )
+
+        if isinstance(last_error, GeminiError):
+            raise last_error
+        if last_error is not None:
+            raise last_error
+        raise GeminiError("Nenhum modelo Gemini foi configurado.")
 
     def _wait_until_active(self, uploaded: Any, progress: Progress | None) -> Any:
         deadline = time.monotonic() + self._processing_timeout
