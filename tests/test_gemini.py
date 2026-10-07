@@ -83,13 +83,28 @@ def test_transcribes_or_translates_and_deletes_remote_file(tmp_path: Path):
     config = fake.models.calls[0]["config"]
     assert config["response_mime_type"] == "application/json"
     assert config["max_output_tokens"] == 65536
+    assert config["http_options"] == {
+        "timeout": 45000,
+        "retry_options": {"attempts": 1},
+    }
 
 
-def test_retries_transient_generation_failure(tmp_path: Path):
+def test_falls_back_after_generation_failure(tmp_path: Path):
     fake = client(valid_response(), failures=1)
     transcriber = GeminiTranscriber("key", client=fake, sleep=lambda _: None)
     transcriber.transcribe(tmp_path / "audio.mp3", "model")
     assert len(fake.models.calls) == 2
+    assert [call["model"] for call in fake.models.calls] == [
+        "model",
+        "gemini-3.1-flash-lite",
+    ]
+
+
+def test_does_not_call_same_fallback_model_twice(tmp_path: Path):
+    fake = client(valid_response())
+    transcriber = GeminiTranscriber("key", client=fake, sleep=lambda _: None)
+    transcriber.transcribe(tmp_path / "audio.mp3", "gemini-3.1-flash-lite")
+    assert len(fake.models.calls) == 1
 
 
 @pytest.mark.parametrize("raw", [None, "not-json", "{}", '{"idioma_detectado": 1}'])
@@ -104,3 +119,14 @@ def test_rejects_invalid_response(raw, tmp_path: Path):
 def test_requires_api_key():
     with pytest.raises(GeminiError, match="GEMINI_API_KEY"):
         GeminiTranscriber(" ")
+
+
+def test_warns_when_remote_cleanup_fails(tmp_path):
+    fake = client(valid_response())
+    def fail_delete(**kwargs):
+        raise RuntimeError("remote failure")
+    fake.files.delete = fail_delete
+    transcriber = GeminiTranscriber("key", client=fake)
+    with pytest.warns(RuntimeWarning, match="excluir o audio remoto"):
+        result = transcriber.transcribe(tmp_path / "audio.mp3", "model")
+    assert result.portuguese_text == "Ola mundo. Texto completo."

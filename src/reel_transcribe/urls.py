@@ -6,7 +6,9 @@ from urllib.parse import urlparse
 
 from .errors import InvalidReelUrlError
 
-_REEL_PATH = re.compile(r"^/reel/([A-Za-z0-9_-]+)/?$")
+_MEDIA_PATH = re.compile(
+    r"^/(?:[A-Za-z0-9_.]+/)?(reel|p)/([A-Za-z0-9_-]+)/?$"
+)
 _ALLOWED_HOSTS = {"instagram.com", "www.instagram.com"}
 
 
@@ -14,6 +16,7 @@ _ALLOWED_HOSTS = {"instagram.com", "www.instagram.com"}
 class ReelUrl:
     url: str
     code: str
+    kind: str = "reel"
 
 
 def parse_reel_url(value: str) -> ReelUrl:
@@ -22,17 +25,18 @@ def parse_reel_url(value: str) -> ReelUrl:
 
     if parsed.scheme not in {"http", "https"} or parsed.hostname not in _ALLOWED_HOSTS:
         raise InvalidReelUrlError(
-            "Informe uma URL valida de Reel, como "
-            "https://www.instagram.com/reel/CODIGO/."
+            "Informe uma URL valida do Instagram, como "
+            "https://www.instagram.com/reel/CODIGO/ ou "
+            "https://www.instagram.com/p/CODIGO/."
         )
 
-    match = _REEL_PATH.fullmatch(parsed.path)
+    match = _MEDIA_PATH.fullmatch(parsed.path)
     if not match:
         raise InvalidReelUrlError(
-            "A URL precisa apontar diretamente para um Reel publico do Instagram."
+            "A URL precisa apontar diretamente para um Reel ou post publico do "
+            "Instagram."
         )
 
-    code = match.group(1)
-    canonical = f"https://www.instagram.com/reel/{code}/"
-    return ReelUrl(url=canonical, code=code)
-
+    kind, code = match.groups()
+    canonical = f"https://www.instagram.com/{kind}/{code}/"
+    return ReelUrl(url=canonical, code=code, kind=kind)

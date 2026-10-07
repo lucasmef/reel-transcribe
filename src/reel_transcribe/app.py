@@ -14,7 +14,13 @@ from .errors import (
     GeminiProcessingError,
     MediaProcessingError,
 )
-from .naming import available_pair, available_video, base_name
+from .downloader import DownloadedMedia
+from .naming import (
+    available_pair,
+    available_video,
+    base_name,
+    image_base_name,
+)
 from .urls import ReelUrl, parse_reel_url
 
 Progress = Callable[[str], None]
@@ -26,7 +32,7 @@ class Downloader(Protocol):
         reel: ReelUrl,
         work_dir: Path,
         progress: Progress | None = None,
-    ) -> Path: ...
+    ) -> DownloadedMedia: ...
 
 
 class Transcriber(Protocol):
@@ -44,14 +50,17 @@ class AudioExtractor(Protocol):
 
 @dataclass(frozen=True)
 class Result:
-    video_path: Path
-    transcript_path: Path
+    video_path: Path | None = None
+    transcript_path: Path | None = None
+    image_paths: tuple[Path, ...] = ()
+    caption_path: Path | None = None
 
 
 def process_reel(
     url: str,
     *,
     output_dir: Path,
+    image_output_dir: Path | None = None,
     model: str,
     downloader: Downloader,
     audio_extractor: AudioExtractor,
@@ -64,17 +73,36 @@ def process_reel(
     with tempfile.TemporaryDirectory(prefix="reel-transcribe-") as temp:
         work_dir = Path(temp)
         if progress:
-            progress("Iniciando download do Reel...")
+            progress("Iniciando download do Instagram...")
         downloaded = downloader.download(reel, work_dir, progress)
 
+        if downloaded.kind == "image":
+            image_directory = image_output_dir or output_dir / "imgs"
+            image_paths = _publish_images(
+                downloaded.paths,
+                image_directory,
+                reel.code,
+            )
+            caption_path = None
+            if downloaded.caption is not None:
+                caption_source = work_dir / "caption.txt"
+                caption_source.write_text(downloaded.caption, encoding="utf-8")
+                caption_path = _publish_file(
+                    caption_source, image_directory / f"{reel.code}-legenda.txt"
+                )
+            if progress:
+                progress("Concluido.")
+            return Result(image_paths=image_paths, caption_path=caption_path)
+
+        video = downloaded.paths[0]
         try:
             if progress:
                 progress("Extraindo audio do video...")
-            audio_path = audio_extractor.extract(downloaded, work_dir)
+            audio_path = audio_extractor.extract(video, work_dir)
             transcription = transcriber.transcribe(audio_path, model, progress)
         except AudioExtractionError as exc:
             preserved = _publish_video(
-                downloaded,
+                video,
                 available_video(output_dir, base_name("")),
             )
             raise MediaProcessingError(
@@ -83,7 +111,7 @@ def process_reel(
             ) from exc
         except GeminiError as exc:
             preserved = _publish_video(
-                downloaded,
+                video,
                 available_video(output_dir, base_name("")),
             )
             raise GeminiProcessingError(
@@ -94,7 +122,7 @@ def process_reel(
         desired = base_name(transcription.first_sentence)
         video_path, transcript_path = available_pair(output_dir, desired)
         _publish_pair(
-            downloaded,
+            video,
             transcription.portuguese_text,
             video_path,
             transcript_path,
@@ -105,7 +133,24 @@ def process_reel(
     return Result(video_path=video_path, transcript_path=transcript_path)
 
 
+def _publish_images(
+    sources: tuple[Path, ...],
+    output_dir: Path,
+    code: str,
+) -> tuple[Path, ...]:
+    published: list[Path] = []
+    for index, source in enumerate(sources, start=1):
+        desired = image_base_name(code, index)
+        destination = output_dir / f"{desired}{source.suffix or '.jpg'}"
+        published.append(_publish_file(source, destination))
+    return tuple(published)
+
+
 def _publish_video(source: Path, destination: Path) -> Path:
+    return _publish_file(source, destination)
+
+
+def _publish_file(source: Path, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.part")
     try:

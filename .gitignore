@@ -10,3 +10,10 @@ dist/
 .env.*
 !.env.example
 
+# Local downloads, reports, browser sessions and OS metadata.
+output/
+.DS_Store
+cookies*.txt
+cookies*.json
+*.cookies
+*.log
