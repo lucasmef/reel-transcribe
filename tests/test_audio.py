@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import subprocess
 
 import pytest
 
@@ -34,6 +35,8 @@ def test_extracts_compact_mono_mp3(monkeypatch, tmp_path: Path):
         "-loglevel",
         "error",
         "-y",
+        "-protocol_whitelist",
+        "file,pipe",
         "-i",
         str(video_path),
         "-vn",
@@ -46,6 +49,16 @@ def test_extracts_compact_mono_mp3(monkeypatch, tmp_path: Path):
         str(result),
     ]
     assert captured["kwargs"]["capture_output"] is True
+    assert captured["kwargs"]["timeout"] == 600
+
+
+def test_reports_ffmpeg_timeout(monkeypatch, tmp_path):
+    monkeypatch.setattr("reel_transcribe.audio.shutil.which", lambda _: "/usr/bin/ffmpeg")
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 600)
+    monkeypatch.setattr("reel_transcribe.audio.subprocess.run", timeout)
+    with pytest.raises(AudioExtractionError, match="tempo limite"):
+        FfmpegAudioExtractor().extract(tmp_path / "reel.mp4", tmp_path)
 
 
 def test_requires_ffmpeg(monkeypatch, tmp_path: Path):

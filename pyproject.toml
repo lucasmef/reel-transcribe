@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=78.1.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,8 +11,8 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Lucas" }]
 dependencies = [
-    "google-genai>=1.0.0,<2",
-    "yt-dlp[default]>=2025.1.0",
+    "google-genai>=1.75.0,<2",
+    "yt-dlp[default]>=2026.8.19",
 ]
 
 [project.optional-dependencies]
@@ -29,4 +29,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-

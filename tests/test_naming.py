@@ -1,7 +1,15 @@
 from datetime import date
 from pathlib import Path
 
-from reel_transcribe.naming import available_pair, base_name, sanitize_title
+from reel_transcribe.naming import (
+    available_file,
+    available_pair,
+    base_name,
+    default_image_output_directory,
+    default_output_directory,
+    image_base_name,
+    sanitize_title,
+)
 
 
 def test_sanitizes_windows_filename():
@@ -28,3 +36,22 @@ def test_avoids_pair_collision(tmp_path: Path):
     video, text = available_pair(tmp_path, "2026-06-06-Titulo")
     assert video.name == "2026-06-06-Titulo (2).mp4"
     assert text.name == "2026-06-06-Titulo (2).txt"
+
+
+def test_avoids_single_file_collision(tmp_path: Path):
+    (tmp_path / "2026-06-06-IMG.jpg").write_bytes(b"existente")
+    image = available_file(tmp_path, "2026-06-06-IMG", ".jpg")
+    assert image.name == "2026-06-06-IMG (2).jpg"
+
+
+def test_default_image_output_is_downloads_folder():
+    assert default_image_output_directory() == Path.home() / "Downloads"
+
+
+def test_image_base_name_uses_post_code_and_index_without_date():
+    assert image_base_name("DaNVOJbGcUP", 3) == "DaNVOJbGcUP-3"
+
+
+def test_output_directory_can_be_configured(monkeypatch):
+    monkeypatch.setenv("REEL_TRANSCRIBE_OUTPUT", "~/custom-output")
+    assert default_output_directory() == Path.home() / "custom-output"
